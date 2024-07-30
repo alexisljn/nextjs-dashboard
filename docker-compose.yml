@@ -1,0 +1,17 @@
+services:
+  database:
+    image: postgres:16
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=dashboard-tuto
+    ports:
+      - 5432:5432
+  adminer:
+    image: adminer:4
+    restart: always
+    environment:
+      - ADMINER_DEFAULT_SERVER=database
+    ports:
+      - 8080:8080
