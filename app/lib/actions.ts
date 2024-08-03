@@ -21,32 +21,58 @@ async function connectToDatabase() {
 
 const FormSchema = z.object({
 	id: z.string(),
-	customerId: z.string(),
-	amount: z.coerce.number(),
-	status: z.enum(['pending', 'paid']),
+	customerId: z.string({
+		invalid_type_error: "Please select a customer",
+		required_error: "Please select a customer",
+	}),
+	amount: z.coerce
+		.number()
+		.gt(0, {message: "Please enter an amount greater than 0"}),
+	status: z.enum(['pending', 'paid'], {invalid_type_error: "Please select an invoice status"}),
 	date: z.string(),
 });
+
+export type State = {
+	errors?: {
+		customerId?: string[];
+		amount?: string[];
+		status?: string[];
+	};
+	message?: string | null;
+};
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
 
-export async function createInvoice(formData: FormData) {
+export async function createInvoice(prevState: State,formData: FormData) {
+	const validatedFields = CreateInvoice.safeParse(Object.fromEntries(formData));
+
+	console.log("validatedFields", validatedFields.error?.flatten().fieldErrors);
+	if (!validatedFields.success) {
+		return {
+			errors: validatedFields.error.flatten().fieldErrors,
+			message: "Missing Fields. Failed to create invoice",
+		}
+	}
+
+	const { customerId, amount, status } = validatedFields.data;
+
+	const amountInCents = amount * 100;
+
+	const date = new Date().toISOString().split('T')[0];
+	
 	try {
-		const { customerId, amount, status } = CreateInvoice.parse(Object.fromEntries(formData));
-
-		const amountInCents = amount * 100;
-
-		const date = new Date().toISOString().split('T')[0];
-
 		const client = await connectToDatabase();
 
 		await client.query(`INSERT INTO invoices (customer_id, amount, status, date) VALUES ($1, $2, $3, $4)`, [customerId, amountInCents, status, date]);
 
 		await client.end();
 	} catch (error: any) {
-		console.error(error);
+		return {
+			message: "Database Error. Failed to create invoice",
+		}
 	}
 
 	revalidatePath('/dashboard/invoices'); // Related to current user (meaning we're mutating his client side router cache)
@@ -55,17 +81,26 @@ export async function createInvoice(formData: FormData) {
 }
 
 
-export async function updateInvoice(id: string, formData: FormData) {
+export async function updateInvoice(id: string, prevState: State, formData: FormData) {
+	// Get values one by one from FormData
+	const validatedFields = UpdateInvoice.safeParse({
+		customerId: formData.get('customerId'),
+		amount: formData.get('amount'),
+		status: formData.get('status'),
+	});
+
+	if (!validatedFields.success) {
+		return {
+			errors: validatedFields.error.flatten().fieldErrors,
+			message: 'Missing Fields. Failed to Update Invoice.',
+		};
+	}
+
+	const { customerId, amount, status } = validatedFields.data;
+	
+	const amountInCents = amount * 100;
+	
 	try {
-		// Get values one by one from FormData
-		const { customerId, amount, status } = UpdateInvoice.parse({
-			customerId: formData.get('customerId'),
-			amount: formData.get('amount'),
-			status: formData.get('status'),
-		});
-
-		const amountInCents = amount * 100;
-
 		const client = await connectToDatabase();
 
 		await client.query(`
@@ -76,7 +111,9 @@ export async function updateInvoice(id: string, formData: FormData) {
 
 		await client.end();
 	} catch (error: any) {
-		console.error(error);
+		return {
+			message: "Database Error. Failed to update invoice",
+		}
 	}
 	
 	revalidatePath('/dashboard/invoices');
